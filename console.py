@@ -18,12 +18,24 @@ class console(QMainWindow):
 
 	def initUI(self):
 
-		## Define tab control
+		# Define tab bar
+		tabBar = QTabBar()
+		tabBar.setShape(QTabBar.RoundedNorth)
+
+		# Define tab control
 		tabControl = QTabWidget()
+		tabControl.setTabBar(tabBar)
 		tabControl.addTab(self.ui_tab_import_txs(), 'Import Raw Txs')
 		tabControl.addTab(self.ui_tab_sign_singletx(), 'Sign Single Tx')
 		tabControl.addTab(self.ui_tab_sign_multisig(), 'Multisig Sign')
+		#tabControl.setTabShape(QTabWidget.Triangular)
+		#tabControl.setIconSize(QSize(32, 32))
 		self.setCentralWidget(tabControl)
+
+		# Tab icons
+		tabControl.setTabIcon(0, QIcon('icons/import_tx.png'))
+		tabControl.setTabIcon(1, QIcon('icons/sign_tx.png'))
+		tabControl.setTabIcon(2, QIcon('icons/bip32_key.png'))
 
 		# Menu bar
 		self.ui_menubar()
