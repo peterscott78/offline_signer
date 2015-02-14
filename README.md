@@ -16,6 +16,7 @@ First requirement is to develop a feature within your software that will provide
 ```
 {
 “txfee_paidby”: “sender”, 
+"change_addr_format": "3of5", 
 
 "inputs": [
      { "input_id":"4",
@@ -47,7 +48,9 @@ Variable | Required | Notes
 wallet_id | No | Any type of unique ID# or name for the wallet processing the funds.  If present, this variable will be included in the return file.
 txfee_paidby | No | Can be either:  **sender**, **recipient**, or **site**.  Defaults to recipient.
 txfee | No | The base tx fee to charge (per 1000 bytes)  Defaults to 0.0001
-change_keyindex | No | Optional.  Default key index to use (eg. 1/43) to use for all change transactions generated during a batch signing.  Only used for inputs that do not have a change_keyindex assigned to them.  Can be “source_address” if desired, which will send the change back to the original input address.
+change_keyindex | No | Optional.  Default key index to use (eg. 1/43) for all change transactions generated during a batch signing.  Only used for outputs that do not have a *change_keyindex* defined.
+public_prefix | No | Optional.  Only needed if processing an alt-coin that is NOT bitcoin.  This should be the two digit hexdecimal prefix for public keys (eg. bitcoin = 00)
+private_prefix | No | Optional.  Only needed if processing an alt-coin that is NOT bitcoin.  This should be the two digit hexdecimal prefix for private keys (eg. bitcoin = 08).
 
 
 ##### Inputs
@@ -57,12 +60,11 @@ An array of all of the inputs to use.  The below table lists the variables allow
 Variable | Required | Notes
 -------- | -------- | -----
 input_id | No | Any unique ID# to identify the input being used.  This will be included in the return file, so you know to mark the input as spent.
-amount | Yes | Amont of the input.
+amount | Yes | Amount of the input.
 txid | Yes | Transaction hash of the input.
 vout | Yes | Integer defining the vout of the input (ie. 0, 1, 2, etc.)
-sigscript | Yes | Signature script of the input.
+sigscript | Yes | Signature script of the input.  For multisig inputs, this is the full redeem script.
 keyindex | Yes | Key index of the input (eg. 0/43), or whatever key index is used to generate the necessary child key using the BIP32 key that will be input during signing.
-change_keyindex | No | Key index to use for any change left over from this input.  
 
 
 ##### Outputs
@@ -72,8 +74,23 @@ An array of all of the outputs to that will be sent.  The below table lists the 
 Variable | Required | Notes
 -------- | -------- | -----
 output_id | No | Any unique ID# to identify the output.  This will be included in the return file, so you know the transaction was signed / sent.
-amount | Yes | Amount  to send.
-address | Yes | Address to send funds to.
+amount | No | Amount to send.  Required unless you're using the below 'recipients' field.
+address | No | Address to send funds to.  Required unless you're using the below 'recipients' field.
+recipients | No | Optional array of recipients, and is only required if you are sending to more than one address.  Each element within the array should be an array containing two elements (*amount* and *address*)
+change_keyindex | No | Key index to use for any change left over from this input.  
+
+
+
+##### Multisig
+
+An optional array that allows you to define multisig transactions to be signed.
+
+Variable | Required | Notes
+-------- | -------- | -----
+trans_id | No | Any unique ID# to identify the transaction.  If present, it will be included in the return file, allowing you to better track the transaction.
+inputs | Yes | An array of inputs to use, including their sigscripts.
+amount | Yes | Amount to sent.
+address | Yes | Address to send to.
 
 
 

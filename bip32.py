@@ -1,5 +1,5 @@
 
-import sys, ctypes, hmac, hashlib
+import sys, ctypes, hmac, hashlib, re
 from binascii import hexlify, unhexlify
 from Crypto.Hash import SHA512
 from Crypto import Random
@@ -8,14 +8,16 @@ from ecdsa import *
 
 class bip32(object):
 
-	def __init__(self, testnet = False):
+	def __init__(self, testnet = False, public_prefix = '00', private_prefix = '08'):
 		super(bip32, self).__init__()
 		self.testnet = testnet
+		self.public_prefix = public_prefix
+		self.private_prefix = private_prefix
 
 	def generate_master_key(self):
 
 		# Get hex code
-		self.digest = SHA512.new(Random.get_random_bytes(8192)).hexdigest();
+		self.digest = SHA512.new(Random.get_random_bytes(1024)).hexdigest();
 		prefix = '04358394' if self.testnet == True else '0488ade4'
 		hex = prefix + '00' + '00000000' + '00000000' + self.digest[:64] + '00' + self.digest[64:]
 
@@ -115,8 +117,7 @@ class bip32(object):
 			pubkey = self.key
 
 		# Generate address
-		prefix = '6f' if self.testnet == True else '00'
-		hash = unhexlify(prefix) + hashlib.new('ripemd160', hashlib.sha256(pubkey).digest()).digest()
+		hash = unhexlify(self.public_prefix) + hashlib.new('ripemd160', hashlib.sha256(pubkey).digest()).digest()
 		return b58encode_checksum(hash)
 
 	def validate_ext_private_key(self, ext_key):
@@ -141,5 +142,92 @@ class bip32(object):
 
 		# Return
 		return True
+
+	def validate_address(self, address):
+
+		# Check length
+		decode = b58decode(address, None)
+		if len(decode) != 25:
+			return False
+
+		# Check address prefix
+		prefix = hexlify(decode[:1])
+		if prefix != 'c4' and prefix != '05' and prefix != '6f' and prefix != self.public_prefix:
+			return False
+
+		# Compare checksum
+		hash = hashlib.sha256(hashlib.sha256(decode[:21]).digest()).digest()
+		return decode[-4:] == hash[:4]
+
+	def validate_sigscript(self, sig_script, privkeys = [], keyindexes = []):
+
+		# Check if sig script matches
+		s = re.match(r'76a914(.+?)88ac', sig_script, re.M|re.I)
+		s2 = re.match(r'(..)(.*)(..)ae', sig_script, re.M|re.I)
+		chk_addrs = []
+		reqsigs = 1
+
+		# Standard
+		if s:
+			addr = b58encode_checksum(unhexlify(self.public_prefix + s.group(1)))
+			chk_addrs.append(addr)
+
+		# Multisig
+		elif s2:
+
+			p = 0
+			sig = unhexlify(s2.group(2))
+			reqsigs = (int(s2.group(1)) - 50)
+			while True:
+				length = int(hexlify(sig[p:(p+1)]), 16)
+				pubkey = sig[(p+1):(p+length+1)]
+				p += (length + 1)
+
+				hash = unhexlify(self.public_prefix) + hashlib.new('ripemd160', hashlib.sha256(pubkey).digest()).digest()
+				chk_addrs.append(b58encode_checksum(hash))
+				if p >= len(sig):
+					break
+
+		else:
+			return False
+
+		# Go through private keys, and look for a match
+		valid_privkeys = []
+		for privkey in privkeys:
+
+			for keyindex in keyindexes:
+				child_key = self.derive_child(privkey, keyindex)
+				if self.key_to_address(child_key) in chk_addrs:
+					valid_privkeys.append(child_key)
+
+		# Return
+		if len(valid_privkeys) > 0:
+			return reqsigs, valid_privkeys
+		else:
+			return reqsigs, False
+
+
+
+	def sigscript_to_address(self, sigscript):
+
+		# Check if sig script matches
+		s = re.match(r'76a914(.+?)88ac', sigscript, re.M|re.I)
+		s2 = re.match(r'(..)(.*)(..)ae', sigscript, re.M|re.I)
+		chk_addrs = []
+
+		# Standard
+		if s:
+			addr = b58encode_checksum(unhexlify(self.public_prefix + s.group(1)))
+			return addr
+
+		# Multisig
+		elif s2:
+			prefix = 'c4' if self.testnet == True else '05'
+			hash = unhexlify(prefix) + hashlib.new('ripemd160', hashlib.sha256(unhexlify(sigscript)).digest()).digest()
+			addr = b58encode_checksum(hash)
+			return addr
+
+		else:
+			return False
 
 

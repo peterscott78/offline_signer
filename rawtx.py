@@ -1,5 +1,5 @@
 
-import sys, ctypes, random
+import sys, ctypes, random, re
 from binascii import hexlify, unhexlify
 from Crypto.Hash import SHA512
 from Crypto import Random
@@ -15,6 +15,19 @@ class rawtx(object):
 		self.timelock = unhexlify('00000000')
 		self.inputs = []
 		self.outputs = []
+
+	def validate_amount(self, amount):
+
+		try:
+			amount = float(amount)
+		except:
+			return False
+
+		if float(amount) < 0.00005430:
+			print "No float"
+			return False
+
+		return True
 
 	def decode_transaction(self, hexcode):
 
@@ -97,16 +110,25 @@ class rawtx(object):
 		trans += self.timelock
 		return trans
 
-	def add_input(self, txid, vout, sigscript, keyindex = None, sequence = None):
+	def add_input(self, txid, vout, sigscript, keyindex = None, privkeys = None, sequence = None):
 		if sequence == None:
 			sequence = unhexlify('ffffffff')
+
+		if type(keyindex) == str or type(keyindex) == unicode:
+			keyindexes = [keyindex]
+		elif type(keyindex) == list:
+			keyindexes = keyindex
+		else:
+			print "Invalid keyindex for input"
+			return False
 
 		self.inputs.append({
 			'txid': txid, 
 			'vout': vout, 
-			'keyindex': keyindex, 
+			'keyindex': keyindexes, 
 			'sigscript': sigscript, 
-			'sequence': sequence
+			'sequence': sequence, 
+			'privkeys': privkeys
 		})
 
 	def add_output(self, amount, address):
@@ -143,42 +165,90 @@ class rawtx(object):
 		self.inputs[x]['keyindex'] = str(keyindex)
 		self.inputs[x]['sigscript'] = unhexlify('76a914' + hexlify(b58decode(address, None))[2:] + '88ac')
 
-	def sign_transaction(self, private_key):
+	def sign_transaction(self):
 
 		# Go through inputs
 		x = 0
+		fully_signed = True
 		for item in self.inputs:
 			hexcode = self.encode_transaction(x) + unhexlify('01000000')
 
-			# Get child key
-			bip = bip32()
-			child_key = bip.derive_child(private_key, item['keyindex'])
+			# Get pub keys from sigscript
+			pubkeys = []
+			s = re.match(r'(..)(.*)(..)ae', item['sigscript'], re.M|re.I)
+			if s:
+				p = 0
+				reqsigs = 0
+				sig = unhexlify(s.group(2))
+				while True:
+					length = int(hexlify(sig[p:(p+1)]), 16)
+					pubkeys.append(sig[(p+1):(p+length+1)])
+					p += (length + 1)
+					reqsigs += 1
 
-			# Decode child key
-			bip.decode_key(child_key)
-			public_key = bip.private_to_public(bip.key)
-			cpubkey = bip.private_to_public(bip.key, True)
+			else:
+				pubkeys.append(item['sigscript'])
+				reqsigs = 1
 
-			# Generate keys for signing
-			pubkey = Public_key( g, g * int(hexlify(bip.key), 16) )
-			privkey = Private_key(pubkey, int(hexlify(bip.key), 16))
+			# Go through private keys, and get signatures
+			self.inputs[x]['signatures'] = {}
+			for privkey in item['privkeys']:
 
-			# Sign tx
-			hash = hashlib.sha256(hashlib.sha256(hexcode).digest()).hexdigest()
-			signature = privkey.sign(int(hash, 16), random.SystemRandom().randrange(1, g.order()))
-			r = hex(signature.r).lstrip('0x').rstrip('L').zfill(64)
-			s = hex(signature.s).lstrip('0x').rstrip('L').zfill(64)
+				# Decode child key
+				bip = bip32()
+				bip.decode_key(privkey)
+				public_key = bip.private_to_public(bip.key, True)
+				uncompressed_public_key = bip.private_to_public(bip.key)
 
-			#print 'verifies', pubkey.verifies(int(hash, 16), signature )
+				# Go through public keys
+				for pkey in pubkeys:
 
-			# Encode signature
-			der = '30' + hexlify(ctypes.c_uint8(int((len(r) + len(s)) / 2) + 4)) + '02' + hexlify(ctypes.c_uint8(int(len(r)/2))) + r + '02' + hexlify(ctypes.c_uint8(int(len(s)/2))) + s + '01'
-			item['sigscript'] = unhexlify('47' + der + hexlify(ctypes.c_uint8(len(cpubkey))))
-			item['sigscript'] += cpubkey
-			x += 1			
+					# Check public key
+					if pkey != public_key and pkey != uncompressed_public_key and pkey != item['sigscript']:
+						continue
 
-		# Finish transaction
-		return hexlify(self.encode_transaction())
+					# Generate keys for signing
+					pubkey = Public_key(g, g * int(hexlify(bip.key), 16))
+					privkey = Private_key(pubkey, int(hexlify(bip.key), 16))
+
+					# Sign tx
+					hash = hashlib.sha256(hashlib.sha256(hexcode).digest()).hexdigest()
+					signature = privkey.sign(int(hash, 16), random.SystemRandom().randrange(1, g.order()))
+					r = hex(signature.r).lstrip('0x').rstrip('L').zfill(64)
+					s = hex(signature.s).lstrip('0x').rstrip('L').zfill(64)
+
+					# Encode signature
+					der = '30' + hexlify(ctypes.c_uint8(int((len(r) + len(s)) / 2) + 4)) + '02' + hexlify(ctypes.c_uint8(int(len(r)/2))) + r + '02' + hexlify(ctypes.c_uint8(int(len(s)/2))) + s + '01'
+					self.inputs[x]['signatures'][pkey] = unhexlify(der)
+					#signatures[pubkey] = unhexlify('47' + der + hexlify(ctypes.c_uint8(len(public_key))))
+					#signatures[pubkey] += pkey
+
+			# Check # of signatures
+			if len(self.inputs[x]['signatures']) >= reqsigs:
+
+				# Create sig
+				if len(self.inputs[x]['signatures']) > 1:					
+					full_sig = unhexlify("00")
+					for pkey in self.inputs[x]['signatures']:
+						full_sig += self.encode_vint(len(self.inputs[x]['signatures'][pkey])) + self.inputs[x]['signatures'][pkey]
+
+					self.inputs[x]['sigscript'] = full_sig + self.encode_vint(len(self.inputs[x]['signatures'][pkey])) + item['sigscript']
+
+				else:
+					self.inputs[x]['sigscript'] = self.encode_vint(len(self.inputs[x]['signatures'][item['sigscript']])) + self.inputs[x]['signatures'][item['sigscript']]
+
+			# Partial signatures
+			else:
+				fully_signed = False
+
+			x += 1
+
+		# Done foreach loop here
+		if fully_signed == True:
+			return hexlify(self.encode_transaction())
+		else:
+			return False
+
 
 	def encode_vint(self, num):
 
