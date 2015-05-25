@@ -1,5 +1,5 @@
 
-import sys, json, os.path
+import sys, json, os.path, ctypes, ctypes.util
 from PyQt4.QtGui import *
 from PyQt4.QtCore import *
 from binascii import hexlify, unhexlify
@@ -11,7 +11,7 @@ from help import *
 from generate_master_key import *
 from generate_hardened_child_key import *
 from verify_public_key import *
-from ecdsa import *
+from ecdsa_keys import *
 
 class console(QMainWindow):
     
@@ -29,7 +29,7 @@ class console(QMainWindow):
 		# Stacked widgets
 		self.stack = QStackedWidget()
 		self.stack.addWidget(import_tx(self))
-		self.stack.addWidget(sign_single_tx().showUI(self))
+		self.stack.addWidget(sign_single_tx(self))
 		self.stack.addWidget(self.showui_bip32_keys())
 		self.stack.addWidget(help(self))
 		self.stack.addWidget(generate_master_key(self))

@@ -1,9 +1,9 @@
 
-import sys, ctypes, random, re
+import sys, ctypes, random, re, ecdsa
 from binascii import hexlify, unhexlify
 from Crypto.Hash import SHA512
 from Crypto import Random
-from ecdsa import *
+from ecdsa import SigningKey, SECP256k1
 from base58 import *
 from bip32 import *
 
@@ -33,7 +33,7 @@ class rawtx(object):
 
 		# Begin decoding
 		try:
-			trans = unhexlify(hexcode)
+			trans = unhexlify(str(hexcode))
 		except:
 			return False
 
@@ -46,7 +46,9 @@ class rawtx(object):
 		for x in range(0, num_inputs):
 			txid = trans[p:(p+32)][::-1]
 			vout = int(hexlify(trans[(p+32):(p+36)][::-1]))
-			script_length = int(hexlify(trans[(p+36):(p+37)]), 16)
+			script_length, blen = self.decode_vint(trans, (p + 36))
+			p += blen
+
 			sigscript = trans[(p+37):(p+37+script_length)]
 			p += (41 + script_length);
 			sequence = trans[(p-4):p]
@@ -62,7 +64,7 @@ class rawtx(object):
 		num_outputs = int(hexlify(trans[p:(p+1)]), 10)
 		p += 1
 		for x in range (0, num_outputs):
-			amount = int(hexlify(trans[p:(p+8)][::-1]), 16) * 1e8
+			amount = int(hexlify(trans[p:(p+8)][::-1]), 16) / 1e8
 			script_length = int(hexlify(trans[(p+8):(p+9)]), 16)
 			script = trans[(p+9):(p+9+script_length)]
 			p += (9 + script_length)
@@ -175,23 +177,25 @@ class rawtx(object):
 
 			# Get pub keys from sigscript
 			pubkeys = []
-			s = re.match(r'(..)(.*)(..)ae', item['sigscript'], re.M|re.I)
+			s = re.match(r'(..)(.*)(..)ae', hexlify(item['sigscript']), re.M|re.I)
 			if s:
 				p = 0
-				reqsigs = 0
 				sig = unhexlify(s.group(2))
+				reqsigs = (int(s.group(1)) - 50)
+
 				while True:
 					length = int(hexlify(sig[p:(p+1)]), 16)
 					pubkeys.append(sig[(p+1):(p+length+1)])
 					p += (length + 1)
-					reqsigs += 1
+					if p >= len(sig):
+						break
 
 			else:
 				pubkeys.append(item['sigscript'])
 				reqsigs = 1
 
 			# Go through private keys, and get signatures
-			self.inputs[x]['signatures'] = {}
+			self.inputs[x]['signatures'] = []
 			for privkey in item['privkeys']:
 
 				# Decode child key
@@ -207,21 +211,13 @@ class rawtx(object):
 					if pkey != public_key and pkey != uncompressed_public_key and pkey != item['sigscript']:
 						continue
 
-					# Generate keys for signing
-					pubkey = Public_key(g, g * int(hexlify(bip.key), 16))
-					privkey = Private_key(pubkey, int(hexlify(bip.key), 16))
+					# Get hash
+					hash = hashlib.sha256(hashlib.sha256(hexcode).digest()).digest()
 
-					# Sign tx
-					hash = hashlib.sha256(hashlib.sha256(hexcode).digest()).hexdigest()
-					signature = privkey.sign(int(hash, 16), random.SystemRandom().randrange(1, g.order()))
-					r = hex(signature.r).lstrip('0x').rstrip('L').zfill(64)
-					s = hex(signature.s).lstrip('0x').rstrip('L').zfill(64)
-
-					# Encode signature
-					der = '30' + hexlify(ctypes.c_uint8(int((len(r) + len(s)) / 2) + 4)) + '02' + hexlify(ctypes.c_uint8(int(len(r)/2))) + r + '02' + hexlify(ctypes.c_uint8(int(len(s)/2))) + s + '01'
-					self.inputs[x]['signatures'][pkey] = unhexlify(der)
-					#signatures[pubkey] = unhexlify('47' + der + hexlify(ctypes.c_uint8(len(public_key))))
-					#signatures[pubkey] += pkey
+					# Sign transaction
+					signingkey = ecdsa.SigningKey.from_string(bip.key[1:], curve=ecdsa.SECP256k1)
+					der = signingkey.sign_digest(hash, sigencode=ecdsa.util.sigencode_der) + unhexlify('01')
+					self.inputs[x]['signatures'].append(der)
 
 			# Check # of signatures
 			if len(self.inputs[x]['signatures']) >= reqsigs:
@@ -229,13 +225,13 @@ class rawtx(object):
 				# Create sig
 				if len(self.inputs[x]['signatures']) > 1:					
 					full_sig = unhexlify("00")
-					for pkey in self.inputs[x]['signatures']:
-						full_sig += self.encode_vint(len(self.inputs[x]['signatures'][pkey])) + self.inputs[x]['signatures'][pkey]
+					for sign in self.inputs[x]['signatures']:
+						full_sig += self.encode_vint(len(sign)) + sign
 
-					self.inputs[x]['sigscript'] = full_sig + self.encode_vint(len(self.inputs[x]['signatures'][pkey])) + item['sigscript']
+					self.inputs[x]['sigscript'] = full_sig + unhexlify('4c') + self.encode_vint(len(item['sigscript'])) + item['sigscript']
 
 				else:
-					self.inputs[x]['sigscript'] = self.encode_vint(len(self.inputs[x]['signatures'][item['sigscript']])) + self.inputs[x]['signatures'][item['sigscript']]
+					self.inputs[x]['sigscript'] = self.encode_vint(len(self.inputs[x]['signatures'][0])) + self.inputs[x]['signatures'][0]
 
 			# Partial signatures
 			else:
@@ -254,14 +250,38 @@ class rawtx(object):
 
 		## Get vint
 		if num < 253:
-			res = binascii.hexlify(ctypes.c_uint8(num))
+			res = hexlify(ctypes.c_uint8(num))
 		elif num < 65535:
-			res = 'fd' + binascii.hexlify(ctypes.c_uint16(num))
+			res = 'fd' + hexlify(ctypes.c_uint16(num))
 		elif num < 4294967295:
-			res = 'fe' + binascii.hexlify(ctypes.c_uint32(num))
+			res = 'fe' + hexlify(ctypes.c_uint32(num))
 		else:
-			res = 'ff' + binascii.hexlify(ctypes.c_uint64(num))
+			res = 'ff' + hexlify(ctypes.c_uint64(num))
 
 		# Return
 		return unhexlify(res)
+
+	def decode_vint(self, trans, s):
+
+		if hexlify(trans[s:(s+1)]) == 'ff':
+			num = int(hexlify(trans[(s+1):(s+5)][::-1]), 16)
+			blen = 5
+		elif hexlify(trans[s:(s+1)]) == 'fe':
+			num = int(hexlify(trans[(s+1):(s+3)][::-1]), 16)
+			blen = 3
+		elif hexlify(trans[s:(s+1)]) == 'fd':
+			num = int(hexlify(trans[(s+1):(s+2)][::-1]), 16)
+			blen = 2
+		else:
+			num = int(hexlify(trans[s:(s+1)]), 16)
+			blen = 0
+
+		# Return
+		return num, blen
+
+
+
+
+
+
 

@@ -4,7 +4,7 @@ from binascii import hexlify, unhexlify
 from Crypto.Hash import SHA512
 from Crypto import Random
 from base58 import *
-from ecdsa import *
+from ecdsa_keys import *
 
 class bip32(object):
 
@@ -193,12 +193,20 @@ class bip32(object):
 
 		# Go through private keys, and look for a match
 		valid_privkeys = []
-		for privkey in privkeys:
+		for chk_addr in chk_addrs:
 
-			for keyindex in keyindexes:
-				child_key = self.derive_child(privkey, keyindex)
-				if self.key_to_address(child_key) in chk_addrs:
-					valid_privkeys.append(child_key)
+			ok = False
+			for privkey in privkeys:
+
+				for keyindex in keyindexes:
+					child_key = self.derive_child(privkey, keyindex)
+					if self.key_to_address(child_key) == chk_addr:
+						valid_privkeys.append(child_key)
+						ok = True
+						break
+
+				if ok == True:
+					break
 
 		# Return
 		if len(valid_privkeys) > 0:
@@ -229,5 +237,6 @@ class bip32(object):
 
 		else:
 			return False
+
 
 

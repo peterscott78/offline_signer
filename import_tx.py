@@ -7,6 +7,7 @@ from ui import *
 from bip32 import *
 from rawtx import *
 from import_tx_results import *
+from sign_single_tx2 import *
 
 class import_tx(QWidget):
 
@@ -125,7 +126,12 @@ class import_tx(QWidget):
 		txfee_paidby = 'sender' if not 'txfee_paidby' in self.json else self.json['txfee_paidby']
 		results = {'tx': [], 'spent_inputs': [], 'change_inputs': [], 'partial_signatures': [] }
 
+		# Initialize
+		testnet = True if 'testnet' in self.json and self.json['testnet'] == 1 else False
+		b32 = bip32(testnet)
+
 		# Go through outputs
+		change_id = 0
 		if 'outputs' in self.json:
 
 			for out in self.json['outputs']:
@@ -138,7 +144,6 @@ class import_tx(QWidget):
 				input_amount = 0
 				output_amount = 0
 				has_change = False
-				change_id = 0
 				change_input = { }
 
 				# Add outputs, as needed
@@ -172,18 +177,18 @@ class import_tx(QWidget):
 							break
 
 						# Get change key index
-						change_address = ''
-						if 'change_keyindex' in out:
+						if 'change_keyindex' in out and 'change_sigscript' in out:
 							change_keyindex = out['change_keyindex']
-						elif 'change_keyindex' in self.json:
+							change_sigscript = out['change_sigscript']
+						elif 'change_keyindex' in self.json and 'change_sigscript' in self.json:
 							change_keyindex = self.json['change_keyindex']
+							change_sigscript = self.json['change_sigscript']
 						else:
 							change_keyindex = item['keyindex']
-							change_address = b32.sigscript_to_address(item['sigscript'])
+							change_sigscript = item['sigscript']
 
-						# Add output
-						if change_address == '':
-							change_address = b32.key_to_address(b32.derive_child(privkeys[0], change_keyindex))
+						# Get change address
+						change_address = b32.sigscript_to_address(change_sigscript)
 						tx.add_output(change_amount, change_address)
 
 						# Add change input to results
@@ -194,13 +199,15 @@ class import_tx(QWidget):
 						change_input['amount'] = change_amount
 						change_input['address'] = change_address
 						change_input['keyindex'] = change_keyindex
+						change_input['sigscript'] = change_sigscript
 
-						# Get sig script
-						daddr = hexlify(b58decode(change_address, None))
-						if daddr[:2] == 'c4' or daddr[:2] == '05':
-							change_input['sigscript'] = 'a914' + daddr[2:42] + '87'
+						if change_sigscript == item['sigscript']:
+							change_input['privkeys'] = item['privkeys']
+							change_input['reqsigs'] = item['reqsigs']
 						else:
-							change_input['sigscript'] = '76a914' + daddr[2:42] + '88ac'
+							reqsigs, valid_privkeys = b32.validate_sigscript(change_sigscript, privkeys, change_keyindex)
+							change_input['privkeys'] = valid_privkeys
+							change_input['reqsigs'] = reqsigs
 
 						break
 
@@ -215,14 +222,14 @@ class import_tx(QWidget):
 				else:
 
 					# Add to results
-					txid = hashlib.sha256(hashlib.sha256(unhexlify(trans)).digest()).hexdigest()
+					txid = hexlify(hashlib.sha256(hashlib.sha256(unhexlify(trans)).digest()).digest()[::-1])
 					output_id = 0 if not 'output_id' in out else out['output_id']
 					tx_results = {
 						'output_id': str(output_id), 
 						'txid': txid, 
 						'amount': output_amount, 
 						'input_amount': input_amount, 
-						'to_address': out['address'], 
+						'to_address': out['recipients'], 
 						'change_amount': change_amount, 
 						'change_address': change_address, 
 						'hexcode': trans
@@ -235,6 +242,18 @@ class import_tx(QWidget):
 						results['change_inputs'].append(change_input)
 						self.json['inputs'].append(change_input)
 
+		# Remove excess elements from inputs
+		for item in results['spent_inputs']:
+			if 'privkeys' in item:
+				del item['privkeys']
+			if 'reqsigs' in item:
+				del item['reqsigs']
+
+		for item in results['change_inputs']:
+			if 'privkeys' in item:
+				del item['privkeys']
+			if 'reqsigs' in item:
+				del item['reqsigs']
 
 		# Show results
 		w = import_tx_results()

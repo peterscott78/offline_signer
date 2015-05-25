@@ -78,19 +78,8 @@ amount | No | Amount to send.  Required unless you're using the below 'recipient
 address | No | Address to send funds to.  Required unless you're using the below 'recipients' field.
 recipients | No | Optional array of recipients, and is only required if you are sending to more than one address.  Each element within the array should be an array containing two elements (*amount* and *address*)
 change_keyindex | No | Key index to use for any change left over from this input.  
-
-
-
-##### Multisig
-
-An optional array that allows you to define multisig transactions to be signed.
-
-Variable | Required | Notes
--------- | -------- | -----
-trans_id | No | Any unique ID# to identify the transaction.  If present, it will be included in the return file, allowing you to better track the transaction.
-inputs | Yes | An array of inputs to use, including their sigscripts.
-amount | Yes | Amount to sent.
-address | Yes | Address to send to.
+change_address | No | Change address to be used.
+change_sigscript | No | Change sigscript to use.
 
 
 
