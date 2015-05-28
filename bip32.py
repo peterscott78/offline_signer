@@ -162,8 +162,8 @@ class bip32(object):
 	def validate_sigscript(self, sig_script, privkeys = [], keyindexes = []):
 
 		# Check if sig script matches
-		s = re.match(r'76a914(.+?)88ac', sig_script, re.M|re.I)
-		s2 = re.match(r'(..)(.*)(..)ae', sig_script, re.M|re.I)
+		s = re.match(r'76a914(.+?)88ac$', sig_script, re.M|re.I)
+		s2 = re.match(r'(..)(.*)(..)ae$', sig_script, re.M|re.I)
 		chk_addrs = []
 		reqsigs = 1
 
@@ -219,8 +219,8 @@ class bip32(object):
 	def sigscript_to_address(self, sigscript):
 
 		# Check if sig script matches
-		s = re.match(r'76a914(.+?)88ac', sigscript, re.M|re.I)
-		s2 = re.match(r'(..)(.*)(..)ae', sigscript, re.M|re.I)
+		s = re.match(r'76a914(.+?)88ac$', sigscript, re.M|re.I)
+		s2 = re.match(r'(..)(.*)(..)ae$', sigscript, re.M|re.I)
 		chk_addrs = []
 
 		# Standard
