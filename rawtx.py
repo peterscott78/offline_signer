@@ -219,7 +219,6 @@ class rawtx(object):
 					der = signingkey.sign_digest(hash, sigencode=ecdsa.util.sigencode_der) + unhexlify('01')
 					self.inputs[x]['signatures'].append(der)
 
-
 			# Check # of signatures
 			if len(self.inputs[x]['signatures']) >= reqsigs:
 
