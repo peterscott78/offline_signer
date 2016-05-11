@@ -120,11 +120,11 @@ class import_tx(QWidget):
 			return
 
 		# Set variables
-		if 'wallet_id' in self.json:
-			results['wallet_id'] = self.json['wallet_id']
 		txfee = 0.0001 if not 'txfee' in self.json else float(self.json['txfee'])
 		txfee_paidby = 'sender' if not 'txfee_paidby' in self.json else self.json['txfee_paidby']
 		results = {'tx': [], 'spent_inputs': [], 'change_inputs': [], 'partial_signatures': [] }
+		if 'wallet_id' in self.json:
+			results['wallet_id'] = self.json['wallet_id']
 
 		# Initialize
 		testnet = True if 'testnet' in self.json and self.json['testnet'] == 1 else False

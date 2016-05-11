@@ -1,5 +1,5 @@
 
-import sys, ctypes, random, re, ecdsa
+import sys, ctypes, random, re, ecdsa, pprint
 from binascii import hexlify, unhexlify
 from Crypto.Hash import SHA512
 from Crypto import Random
@@ -217,6 +217,7 @@ class rawtx(object):
 					# Sign transaction
 					signingkey = ecdsa.SigningKey.from_string(bip.key[1:], curve=ecdsa.SECP256k1)
 					der = signingkey.sign_digest(hash, sigencode=ecdsa.util.sigencode_der) + unhexlify('01')
+					der = self.verify_der(der)
 					self.inputs[x]['signatures'].append(der)
 
 			# Check # of signatures
@@ -245,6 +246,29 @@ class rawtx(object):
 			return hexlify(self.encode_transaction())
 		else:
 			return False
+
+
+	def verify_der(self, der):
+
+		# Decode der signature
+		code = der
+		r_length = int(hexlify(code[3]), 16)
+		s_length = int(hexlify(code[(5 + r_length)]), 16)
+
+		# Get r / s values
+		r = hexlify(code[4:(4 + r_length)])
+		s = hexlify(code[(6 + r_length):(6 + r_length + s_length)])
+
+		# Check if high S value
+		if (int(s, 16) > int('7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0', 16)):
+			new_s = format(int('FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141', 16) - int(s, 16), 'x')
+			new_s_length = len(new_s) / 2
+			new_der_length = r_length + new_s_length + 4;
+			der = '30' + hexlify(ctypes.c_uint8(new_der_length)) + '02' + hexlify(ctypes.c_uint8(r_length)) + r +  '02' + hexlify(ctypes.c_uint8(new_s_length)) + new_s + '01'
+			der = unhexlify(der)
+
+		# Return
+		return der
 
 
 	def encode_vint(self, num):
